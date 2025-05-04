@@ -124,3 +124,54 @@ void A_input(struct pkt packet) {
     }
   }
 }
+
+void A_timerinterrupt(void) {
+  for (int i = 0; i < windowcount; i++) {
+    int idx = (windowbase + i) % WINDOWSIZE;
+    if (timers[idx]) {
+      if (TRACE > 0)
+        printf("----A: resending packet %d\n", buffer[idx].seqnum);
+      tolayer3(A, buffer[idx]);
+      packets_resent++;
+      timers[idx] = false;
+      starttimer_sr(A, RTT, idx);
+      return;
+    }
+  }
+  if (windowcount > 0) manage_timers();
+}
+
+void A_init(void) {
+  A_nextseqnum = 0;
+  windowbase = 0;
+  windowcount = 0;
+  for (int i = 0; i < WINDOWSIZE; i++) {
+    acked[i] = false;
+    timers[i] = false;
+  }
+}
+
+bool is_in_window(int seqnum) {
+  int ub = (rcv_base + WINDOWSIZE - 1) % SEQSPACE;
+  return (rcv_base <= ub) ? (seqnum >= rcv_base && seqnum <= ub)
+                          : (seqnum >= rcv_base || seqnum <= ub);
+}
+
+int get_receiver_index(int seqnum) {
+  return (seqnum - rcv_base + WINDOWSIZE) % WINDOWSIZE;
+}
+
+void deliver_buffered_packets(void) {
+  bool delivered = true;
+  while (delivered) {
+    int idx = get_receiver_index(rcv_base);
+    if (received[idx]) {
+      if (TRACE > 0)
+        printf("----B: delivering buffered packet %d to application layer\n", rcv_base);
+      tolayer5(B, buffered[idx].payload);
+      received[idx] = false;
+      rcv_base = (rcv_base + 1) % SEQSPACE;
+      packets_received++;
+    } else delivered = false;
+  }
+}
