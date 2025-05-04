@@ -9,19 +9,12 @@
 #define SEQSPACE 12
 #define NOTINUSE (-1)
 
-// Sender-side state variables
 static struct pkt buffer[WINDOWSIZE];
 static int windowbase;
 static int windowcount;
 static int A_nextseqnum;
-static bool acked[WINDOWSIZE];
-static bool timers[WINDOWSIZE];
 
-// Receiver-side state variables
 static int rcv_base;
-static bool received[WINDOWSIZE];
-static struct pkt buffered[WINDOWSIZE];
-static int B_nextseqnum;
 
 int ComputeChecksum(struct pkt packet) {
   int checksum = packet.seqnum + packet.acknum;
@@ -33,58 +26,61 @@ bool IsCorrupted(struct pkt packet) {
   return packet.checksum != ComputeChecksum(packet);
 }
 
-void starttimer_sr(int AorB, double increment, int index) {
-  if (TRACE > 1)
-    printf("----Starting timer for packet at window index %d\n", index);
-  timers[index] = true;
-  starttimer(AorB, increment);
-}
+void A_output(struct msg message) {
+  if (windowcount < WINDOWSIZE) {
+    struct pkt sendpkt;
+    sendpkt.seqnum = A_nextseqnum;
+    sendpkt.acknum = NOTINUSE;
+    for (int i = 0; i < 20; i++) sendpkt.payload[i] = message.data[i];
+    sendpkt.checksum = ComputeChecksum(sendpkt);
 
-void stoptimer_sr(int AorB, int index) {
-  if (TRACE > 1)
-    printf("----Stopping timer for packet at window index %d\n", index);
-  timers[index] = false;
-  stoptimer(AorB);
-}
+    buffer[windowcount] = sendpkt;
+    tolayer3(A, sendpkt);
+    starttimer(A, RTT);
 
-void manage_timers(void) {
-  for (int i = 0; i < windowcount; i++) {
-    int idx = (windowbase + i) % WINDOWSIZE;
-    if (!acked[idx] && !timers[idx]) {
-      starttimer_sr(A, RTT, idx);
-      return;
-    }
-  }
-  for (int i = 0; i < windowcount; i++) {
-    int idx = (windowbase + i) % WINDOWSIZE;
-    if (!acked[idx]) {
-      starttimer_sr(A, RTT, idx);
-      return;
-    }
+    A_nextseqnum = (A_nextseqnum + 1) % SEQSPACE;
+    windowcount++;
   }
 }
 
-int get_buffer_index(int seqnum) {
-  for (int i = 0; i < windowcount; i++) {
-    int idx = (windowbase + i) % WINDOWSIZE;
-    if (buffer[idx].seqnum == seqnum) return idx;
+void A_input(struct pkt packet) {
+  if (!IsCorrupted(packet)) {
+    stoptimer(A);
+    windowcount--;
+    windowbase = (windowbase + 1) % SEQSPACE;
   }
-  return -1;
 }
 
-void slide_window(void) {
-  int slide = 0;
+void A_timerinterrupt(void) {
+  // GBN-style: resend all packets in window
   for (int i = 0; i < windowcount; i++) {
-    if (acked[(windowbase + i) % WINDOWSIZE]) slide++;
-    else break;
+    tolayer3(A, buffer[i]);
   }
-  if (slide > 0) {
-    windowbase = (windowbase + slide) % WINDOWSIZE;
-    windowcount -= slide;
-    for (int i = 0; i < slide; i++) {
-      int idx = (windowbase - slide + i + WINDOWSIZE) % WINDOWSIZE;
-      timers[idx] = false;
-      acked[idx] = false;
-    }
+  starttimer(A, RTT);
+}
+
+void A_init(void) {
+  A_nextseqnum = 0;
+  windowbase = 0;
+  windowcount = 0;
+}
+
+void B_input(struct pkt packet) {
+  if (!IsCorrupted(packet)) {
+    tolayer5(B, packet.payload);
+
+    struct pkt ackpkt;
+    ackpkt.seqnum = 0;
+    ackpkt.acknum = packet.seqnum;
+    for (int i = 0; i < 20; i++) ackpkt.payload[i] = '0';
+    ackpkt.checksum = ComputeChecksum(ackpkt);
+    tolayer3(B, ackpkt);
   }
 }
+
+void B_init(void) {
+  rcv_base = 0;
+}
+
+void B_output(struct msg message) {}
+void B_timerinterrupt(void) {}
