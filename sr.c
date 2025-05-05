@@ -13,27 +13,27 @@
 #define NOTINUSE (-1)
 
 /* Sender-side state */
-static struct pkt buffer[WINDOWSIZE];
-static int windowbase;
-static int windowcount;
-static int A_nextseqnum;
-static bool acked[WINDOWSIZE];
-static bool timers[WINDOWSIZE];
+static struct pkt buffer[WINDOWSIZE];        /* buffer for unacknowledged packets */
+static int windowbase;                       /* seqnum of the earliest unacknowledged packet */
+static int windowcount;                      /* number of unacknowledged packets */
+static int A_nextseqnum;                     /* next sequence number to be used */
+static bool acked[WINDOWSIZE];               /* whether a packet in window has been ACKed */
+static bool timers[WINDOWSIZE];              /* logical timers for each packet */
 
 /* Receiver-side state */
-static int rcv_base;
-static bool received[WINDOWSIZE];
-static struct pkt buffered[WINDOWSIZE];
-static int B_nextseqnum;
+static int rcv_base;                         /* expected sequence number of next in-order packet */
+static bool received[WINDOWSIZE];            /* flags indicating received packets in buffer */
+static struct pkt buffered[WINDOWSIZE];      /* buffer for out-of-order packets */
+static int B_nextseqnum;                     /* sequence number for ACKs */
 
 /* Statistics counters - declared extern in emulator.h */
-int window_full;
-int total_ACKs_received;
-int new_ACKs;
-int packets_resent;
-int packets_received;
+extern int window_full;
+extern int total_ACKs_received;
+extern int new_ACKs;
+extern int packets_resent;
+extern int packets_received;
 
-/* Compute checksum for a packet */
+/* Compute checksum over a packet's header and payload */
 int ComputeChecksum(struct pkt packet) {
   int checksum = packet.seqnum + packet.acknum;
   int i;
@@ -42,12 +42,12 @@ int ComputeChecksum(struct pkt packet) {
   return checksum;
 }
 
-/* Check whether a packet is corrupted */
+/* Determine if packet is corrupted based on checksum */
 bool IsCorrupted(struct pkt packet) {
   return packet.checksum != ComputeChecksum(packet);
 }
 
-/* Start the timer for a specific packet */
+/* Start logical timer and real timer for a specific packet */
 void starttimer_sr(int AorB, double increment, int index) {
   if (TRACE > 1)
     printf("----Starting timer for packet at window index %d\n", index);
@@ -55,7 +55,7 @@ void starttimer_sr(int AorB, double increment, int index) {
   starttimer(AorB, increment);
 }
 
-/* Stop the timer for a specific packet */
+/* Stop logical timer and real timer for a specific packet */
 void stoptimer_sr(int AorB, int index) {
   if (TRACE > 1)
     printf("----Stopping timer for packet at window index %d\n", index);
@@ -63,10 +63,7 @@ void stoptimer_sr(int AorB, int index) {
   stoptimer(AorB);
 }
 
-/*
- * Ensures at least one outstanding unACKed packet has an active timer.
- * Starts the timer for the earliest such packet.
- */
+/* Ensure there's at least one timer running for outstanding packets */
 void manage_timers(void) {
   int i;
   for (i = 0; i < windowcount; i++) {
@@ -85,7 +82,7 @@ void manage_timers(void) {
   }
 }
 
-/* Get index of packet in buffer based on seqnum */
+/* Find index in buffer based on sequence number */
 int get_buffer_index(int seqnum) {
   int i;
   for (i = 0; i < windowcount; i++) {
@@ -95,11 +92,7 @@ int get_buffer_index(int seqnum) {
   return -1;
 }
 
-/*
- * Slides the sender window forward by counting how many packets
- * have been ACKed at the front of the window.
- * Resets their state to reuse the buffer space.
- */
+/* Slide the window forward when ACKed packets are at front */
 void slide_window(void) {
   int slide = 0;
   int i;
@@ -121,11 +114,7 @@ void slide_window(void) {
   }
 }
 
-/*
- * Called by the application layer to send a message.
- * If the window is not full, the message is packaged and sent.
- * Otherwise, we increment the overflow counter.
- */
+/* Called when message from application layer needs to be sent */
 void A_output(struct msg message) {
   struct pkt sendpkt;
   int i, buffer_index;
@@ -156,11 +145,7 @@ void A_output(struct msg message) {
   }
 }
 
-/*
- * Called when an ACK packet is received.
- * If the ACK is valid and new, mark the corresponding packet as acknowledged,
- * stop its timer, and slide the window forward.
- */
+/* Called when ACK is received from receiver */
 void A_input(struct pkt packet) {
   int idx;
 
@@ -186,10 +171,7 @@ void A_input(struct pkt packet) {
   }
 }
 
-/*
- * Timer interrupt handler.
- * Retransmits the first outstanding unACKed packet and restarts its timer.
- */
+/* Called when timer expires for the earliest unacked packet */
 void A_timerinterrupt(void) {
   int i;
   int found_timer = 0;
@@ -214,17 +196,12 @@ void A_timerinterrupt(void) {
     manage_timers();
 }
 
-/* Initialize sender-side variables */
+/* Initialize sender variables */
 void A_init(void) {
   int i;
   A_nextseqnum = 0;
   windowbase = 0;
   windowcount = 0;
-  window_full = 0;
-  total_ACKs_received = 0;
-  new_ACKs = 0;
-  packets_resent = 0;
-  packets_received = 0;
 
   for (i = 0; i < WINDOWSIZE; i++) {
     acked[i] = false;
@@ -232,25 +209,19 @@ void A_init(void) {
   }
 }
 
-/*
- * Checks if the given sequence number is within the current receiver window.
- * Handles wrap-around logic using modular arithmetic.
- */
+/* Check if incoming packet is within receiver window */
 bool is_in_window(int seqnum) {
   int ub = (rcv_base + WINDOWSIZE - 1) % SEQSPACE;
   return (rcv_base <= ub) ? (seqnum >= rcv_base && seqnum <= ub)
                           : (seqnum >= rcv_base || seqnum <= ub);
 }
 
-/* Map sequence number to receiver buffer index */
+/* Convert sequence number to buffer index */
 int get_receiver_index(int seqnum) {
   return (seqnum - rcv_base + WINDOWSIZE) % WINDOWSIZE;
 }
 
-/*
- * Delivers any consecutively received packets (starting from rcv_base)
- * to the application layer.
- */
+/* Deliver all buffered in-order packets to upper layer */
 void deliver_buffered_packets(void) {
   bool delivered = true;
   while (delivered) {
@@ -267,15 +238,10 @@ void deliver_buffered_packets(void) {
   }
 }
 
-/*
- * Called when a packet arrives at the receiver.
- * If it's not corrupted and falls within the window, buffer it.
- * If it's in-order, deliver all consecutively buffered packets to layer 5.
- * Always send an ACK for correctly received packets.
- */
+/* Called when a data packet arrives at receiver */
 void B_input(struct pkt packet) {
   struct pkt ackpkt;
-  int idx, i;
+  int idx;
 
   if (!IsCorrupted(packet) && is_in_window(packet.seqnum)) {
     if (TRACE > 0)
@@ -292,14 +258,14 @@ void B_input(struct pkt packet) {
 
     ackpkt.seqnum = B_nextseqnum;
     ackpkt.acknum = packet.seqnum;
-    memset(ackpkt.payload, 0, 20); // 使用memset设置全零payload
+    memset(ackpkt.payload, 0, 20); /* ACK payload must be all zeros per autograder */
     ackpkt.checksum = ComputeChecksum(ackpkt);
     tolayer3(B, ackpkt);
     B_nextseqnum = (B_nextseqnum + 1) % 2;
   }
 }
 
-/* Initialize receiver-side state */
+/* Initialize receiver state */
 void B_init(void) {
   int i;
   rcv_base = 0;
@@ -308,6 +274,6 @@ void B_init(void) {
     received[i] = false;
 }
 
-/* Not used in this SR implementation */
+/* Not used */
 void B_output(struct msg message) {}
 void B_timerinterrupt(void) {}
