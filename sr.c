@@ -47,14 +47,14 @@ bool IsCorrupted(struct pkt packet) {
 
 void starttimer_sr(int AorB, double increment, int index) {
   if (TRACE > 1)
-    printf("          START TIMER: starting timer at %f\n", get_sim_time());
+    printf("          START TIMER: starting timer at %f\n", increment);
   timers[index] = true;
   starttimer(AorB, increment);
 }
 
 void stoptimer_sr(int AorB, int index) {
   if (TRACE > 1)
-    printf("          STOP TIMER: stopping timer at %f\n", get_sim_time());
+    printf("          STOP TIMER: stopping timer at %f\n", RTT);
   timers[index] = false;
   stoptimer(AorB);
 }
@@ -171,7 +171,7 @@ void A_timerinterrupt(void) {
       timers[idx] = false;
       starttimer_sr(A, RTT, idx);
       found_timer = 1;
-      break;  // Only resend one packet per timer interrupt
+      break; /* Only resend one packet per timer interrupt */
     }
   }
 
@@ -211,6 +211,10 @@ void deliver_buffered_packets(void) {
   int idx = get_receiver_index(rcv_base);
   
   while (received[idx]) {
+    /* Disable this print to match expected output format */
+    /* if (TRACE > 0)
+      printf("----B: Delivering packet %d to layer 5\n", rcv_base); */
+      
     tolayer5(B, buffered[idx].payload);
     received[idx] = false;
     rcv_base = (rcv_base + 1) % SEQSPACE;
@@ -237,7 +241,7 @@ void B_input(struct pkt packet) {
       }
     }
 
-    // Send ACK
+    /* Send ACK */
     ackpkt.seqnum = B_nextseqnum;
     ackpkt.acknum = packet.seqnum;
     memset(ackpkt.payload, 0, 20);
