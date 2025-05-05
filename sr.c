@@ -33,9 +33,6 @@ extern int new_ACKs;
 extern int packets_resent;
 extern int packets_received;
 
-/* Access to emulator time */
-extern float time;
-
 int ComputeChecksum(struct pkt packet) {
   int checksum = packet.seqnum + packet.acknum;
   int i;
@@ -50,14 +47,14 @@ bool IsCorrupted(struct pkt packet) {
 
 void starttimer_sr(int AorB, double increment, int index) {
   if (TRACE > 1)
-    printf("          START TIMER: starting timer at %f\n", time);
+    printf("          START TIMER: starting timer at %f\n", increment);
   timers[index] = true;
   starttimer(AorB, increment);
 }
 
 void stoptimer_sr(int AorB, int index) {
   if (TRACE > 1)
-    printf("          STOP TIMER: stopping timer at %f\n", time);
+    printf("          STOP TIMER: stopping timer at %f\n", RTT);
   timers[index] = false;
   stoptimer(AorB);
 }
