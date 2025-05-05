@@ -33,6 +33,8 @@ extern int new_ACKs;
 extern int packets_resent;
 extern int packets_received;
 
+extern double get_sim_time(); // Fix linker error for get_sim_time
+
 int ComputeChecksum(struct pkt packet) {
   int checksum = packet.seqnum + packet.acknum;
   int i;
@@ -46,14 +48,16 @@ bool IsCorrupted(struct pkt packet) {
 }
 
 void starttimer_sr(int AorB, double increment, int index) {
+  if (TRACE > 1)
+    printf("          START TIMER: starting timer at %.6f\n", get_sim_time());
   timers[index] = true;
-  printf("          START TIMER: starting timer at %.6f\n", get_sim_time());
   starttimer(AorB, increment);
 }
 
 void stoptimer_sr(int AorB, int index) {
+  if (TRACE > 1)
+    printf("          STOP TIMER: stopping timer at %.6f\n", get_sim_time());
   timers[index] = false;
-  printf("          STOP TIMER: stopping timer at %.6f\n", get_sim_time());
   stoptimer(AorB);
 }
 
@@ -63,14 +67,7 @@ void manage_timers(void) {
     int idx = (windowbase + i) % WINDOWSIZE;
     if (!acked[idx] && !timers[idx]) {
       starttimer_sr(A, RTT, idx);
-      return;
-    }
-  }
-  for (i = 0; i < windowcount; i++) {
-    int idx = (windowbase + i) % WINDOWSIZE;
-    if (!acked[idx]) {
-      starttimer_sr(A, RTT, idx);
-      return;
+      break;
     }
   }
 }
@@ -94,11 +91,11 @@ void slide_window(void) {
       break;
   }
   if (slide > 0) {
-    int idx;
+    int old_base = windowbase;
     windowbase = (windowbase + slide) % WINDOWSIZE;
     windowcount -= slide;
     for (i = 0; i < slide; i++) {
-      idx = (windowbase - slide + i + WINDOWSIZE) % WINDOWSIZE;
+      int idx = (old_base + i) % WINDOWSIZE;
       timers[idx] = false;
       acked[idx] = false;
     }
@@ -110,7 +107,8 @@ void A_output(struct msg message) {
   int i, buffer_index;
 
   if (windowcount < WINDOWSIZE) {
-    printf("----A: New message arrives, send window is not full, send new messge to layer3!\n");
+    if (TRACE > 0)
+      printf("----A: New message arrives, send window is not full, send new messge to layer3!\n");
 
     sendpkt.seqnum = A_nextseqnum;
     sendpkt.acknum = NOTINUSE;
@@ -123,7 +121,8 @@ void A_output(struct msg message) {
     acked[buffer_index] = false;
     windowcount++;
 
-    printf("Sending packet %d to layer 3\n", sendpkt.seqnum);
+    if (TRACE > 0)
+      printf("Sending packet %d to layer 3\n", sendpkt.seqnum);
 
     tolayer3(A, sendpkt);
     starttimer_sr(A, RTT, buffer_index);
@@ -138,11 +137,14 @@ void A_input(struct pkt packet) {
 
   if (!IsCorrupted(packet)) {
     total_ACKs_received++;
-    printf("----A: uncorrupted ACK %d is received\n", packet.acknum);
+
+    if (TRACE > 0)
+      printf("----A: uncorrupted ACK %d is received\n", packet.acknum);
 
     idx = get_buffer_index(packet.acknum);
     if (idx != -1 && !acked[idx]) {
-      printf("----A: ACK %d is not a duplicate\n", packet.acknum);
+      if (TRACE > 0)
+        printf("----A: ACK %d is not a duplicate\n", packet.acknum);
 
       acked[idx] = true;
       new_ACKs++;
@@ -164,7 +166,8 @@ void A_timerinterrupt(void) {
   for (i = 0; i < windowcount; i++) {
     int idx = (windowbase + i) % WINDOWSIZE;
     if (timers[idx]) {
-      printf("----A: Timer expired, resending packet %d\n", buffer[idx].seqnum);
+      if (TRACE > 0)
+        printf("----A: Timer expired, resending packet %d\n", buffer[idx].seqnum);
       tolayer3(A, buffer[idx]);
       packets_resent++;
       timers[idx] = false;
@@ -205,6 +208,8 @@ void deliver_buffered_packets(void) {
   while (delivered) {
     int idx = get_receiver_index(rcv_base);
     if (received[idx]) {
+      if (TRACE > 0)
+        printf("----B: Delivering packet %d to layer 5\n", rcv_base);
       tolayer5(B, buffered[idx].payload);
       received[idx] = false;
       rcv_base = (rcv_base + 1) % SEQSPACE;
@@ -219,7 +224,8 @@ void B_input(struct pkt packet) {
   int idx;
 
   if (!IsCorrupted(packet) && is_in_window(packet.seqnum)) {
-    printf("----B: packet %d is correctly received, send ACK!\n", packet.seqnum);
+    if (TRACE > 0)
+      printf("----B: packet %d is correctly received, send ACK!\n", packet.seqnum);
 
     idx = get_receiver_index(packet.seqnum);
     if (!received[idx]) {
@@ -232,7 +238,7 @@ void B_input(struct pkt packet) {
 
     ackpkt.seqnum = B_nextseqnum;
     ackpkt.acknum = packet.seqnum;
-    memset(ackpkt.payload, 0, 20);
+    memset(ackpkt.payload, 0, 20); /* 使用 memset 设置全零 payload */
     ackpkt.checksum = ComputeChecksum(ackpkt);
     tolayer3(B, ackpkt);
     B_nextseqnum = (B_nextseqnum + 1) % 2;
