@@ -46,15 +46,21 @@ bool IsCorrupted(struct pkt packet) {
 }
 
 void starttimer_sr(int AorB, double increment, int index) {
-  if (TRACE > 1)
-    printf("          START TIMER: starting timer at %f\n", increment);
+  /* Only print the message for the first timer */
+  if (TRACE > 1) {
+    double current_time = get_sim_time();
+    printf("          START TIMER: starting timer at %f\n", current_time);
+  }
   timers[index] = true;
   starttimer(AorB, increment);
 }
 
 void stoptimer_sr(int AorB, int index) {
-  if (TRACE > 1)
-    printf("          STOP TIMER: stopping timer at %f\n", RTT);
+  /* Only print the message for the timer being stopped */
+  if (TRACE > 1) {
+    double current_time = get_sim_time();
+    printf("          STOP TIMER: stopping timer at %f\n", current_time);
+  }
   timers[index] = false;
   stoptimer(AorB);
 }
@@ -208,17 +214,17 @@ int get_receiver_index(int seqnum) {
 
 /* Deliver packets that have been received in order */
 void deliver_buffered_packets(void) {
-  int idx = get_receiver_index(rcv_base);
+  int idx;
   
-  while (received[idx]) {
-    /* Disable this print to match expected output format */
-    /* if (TRACE > 0)
-      printf("----B: Delivering packet %d to layer 5\n", rcv_base); */
-      
-    tolayer5(B, buffered[idx].payload);
-    received[idx] = false;
-    rcv_base = (rcv_base + 1) % SEQSPACE;
+  while (1) {
     idx = get_receiver_index(rcv_base);
+    if (received[idx]) {
+      tolayer5(B, buffered[idx].payload);
+      received[idx] = false;
+      rcv_base = (rcv_base + 1) % SEQSPACE;
+    } else {
+      break;
+    }
   }
 }
 
