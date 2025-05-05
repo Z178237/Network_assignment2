@@ -70,7 +70,7 @@ void A_output(struct msg message)
 
   /* if there's space in the window */
   if ((A_nextseqnum < A_base + WINDOWSIZE) || 
-      (A_base + WINDOWSIZE >= SEQSPACE && A_nextseqnum < (A_base + WINDOWSIZE) % SEQSPACE)) {
+      (A_base + WINDOWSIZE > SEQSPACE && A_nextseqnum < (A_base + WINDOWSIZE) % SEQSPACE)) {
     
     if (TRACE > 1)
       printf("----A: New message arrives, send window is not full, send new messge to layer3!\n");
@@ -110,8 +110,6 @@ void A_output(struct msg message)
 /* Handle incoming ACKs */
 void A_input(struct pkt packet)
 {
-  int i;
-  
   /* if received ACK is not corrupted */
   if (!IsCorrupted(packet)) {
     if (TRACE > 0)
@@ -144,7 +142,7 @@ void A_input(struct pkt packet)
           }
         }
         
-        /* If timer was running, stop and restart it */
+        /* If timer was running, stop and restart it if needed */
         if (A_timer_running) {
           stoptimer(A);
           A_timer_running = false;
@@ -168,7 +166,6 @@ void A_input(struct pkt packet)
 void A_timerinterrupt(void)
 {
   int i;
-  bool packets_sent = false;
   
   if (TRACE > 0)
     printf("----A: time out,resend packets!\n");
@@ -185,13 +182,14 @@ void A_timerinterrupt(void)
       
       tolayer3(A, buffer[seq % WINDOWSIZE]);
       packets_resent++;
-      packets_sent = true;
-      break; /* Only send one packet at a time */
+      
+      /* Only send one packet at a time */
+      break;
     }
   }
   
-  /* Restart timer if packets were resent */
-  if (packets_sent && A_base != A_nextseqnum) {
+  /* Restart timer if there are still unacknowledged packets */
+  if (A_base != A_nextseqnum) {
     starttimer(A, RTT);
     A_timer_running = true;
   }
@@ -232,7 +230,7 @@ void B_input(struct pkt packet)
       printf("----B: packet %d is correctly received, send ACK!\n", packet.seqnum);
     
     /* Store the packet and mark as received */
-    B_buffer[packet.seqnum] = packet;
+    B_buffer[packet.seqnum % SEQSPACE] = packet;
     B_received[packet.seqnum] = true;
     
     /* Send ACK for this packet */
@@ -252,7 +250,7 @@ void B_input(struct pkt packet)
     /* Deliver in-order packets to the application layer */
     while (B_received[B_base]) {
       /* Deliver to application layer */
-      tolayer5(B, B_buffer[B_base].payload);
+      tolayer5(B, B_buffer[B_base % SEQSPACE].payload);
       packets_received++;
       
       /* Mark as not received for future use */
