@@ -11,7 +11,7 @@ This project implements the Selective Repeat (SR) reliable transport protocol in
 - `sr.c`: Main source file implementing the SR logic for sender and receiver.
 - `sr.h`: Header file declaring the required SR interface.
 - `emulator.c/h`: Provided simulation environment for testing.
-- | Test | Description                             | Result | Key Observations |
+- | Test | Description                           | Result | Key Observations |
 |------|-----------------------------------------|--------|------------------|
 | T1   | Normal transmission                     | Pass | Window slides smoothly; ACKs trigger correctly |
 | T2   | Data packet loss                        | Pass | Only base packet is retransmitted |
