@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
-#include "simulator.h"
 #include "sr.h"
 
 struct pkt sndpkt[SEQSPACE];
