@@ -46,21 +46,15 @@ bool IsCorrupted(struct pkt packet) {
 }
 
 void starttimer_sr(int AorB, double increment, int index) {
-  /* Only print the message for the first timer */
-  if (TRACE > 1) {
-    double current_time = get_sim_time();
-    printf("          START TIMER: starting timer at %f\n", current_time);
-  }
+  if (TRACE > 1)
+    printf("          START TIMER: starting timer at %f\n", increment);
   timers[index] = true;
   starttimer(AorB, increment);
 }
 
 void stoptimer_sr(int AorB, int index) {
-  /* Only print the message for the timer being stopped */
-  if (TRACE > 1) {
-    double current_time = get_sim_time();
-    printf("          STOP TIMER: stopping timer at %f\n", current_time);
-  }
+  if (TRACE > 1)
+    printf("          STOP TIMER: stopping timer at %f\n", RTT);
   timers[index] = false;
   stoptimer(AorB);
 }
