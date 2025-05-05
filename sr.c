@@ -54,7 +54,7 @@ void starttimer_sr(int AorB, float increment, int index) {
     }
     timers[index] = true;
     if (TRACE > 1)
-        printf("          START TIMER: starting timer at %f\n", time);
+        printf("          START TIMER: starting timer at %f\n", increment);
     starttimer(AorB, increment);
 }
 
@@ -65,7 +65,7 @@ void stoptimer_sr(int AorB, int index) {
     }
     timers[index] = false;
     if (TRACE > 1)
-        printf("          STOP TIMER: stopping timer at %f\n", time);
+        printf("          STOP TIMER: stopping timer at %f\n", RTT);
     stoptimer(AorB);
 }
 
