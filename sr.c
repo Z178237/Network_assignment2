@@ -24,7 +24,6 @@ static bool timers[WINDOWSIZE];
 static int rcv_base;
 static bool received[WINDOWSIZE];
 static struct pkt buffered[WINDOWSIZE];
-static int B_nextseqnum;
 
 /* Statistics counters - declared extern in emulator.h */
 extern int window_full;
@@ -48,20 +47,21 @@ bool IsCorrupted(struct pkt packet) {
   return packet.checksum != ComputeChecksum(packet);
 }
 
-void starttimer_sr(int AorB, double increment, int index) {
+void starttimer_sr(int AorB, float increment, int index) {
   if (TRACE > 1)
-    printf("          START TIMER: starting timer at %f\n", increment);
+    printf("          START TIMER: starting timer at %f\n", time);
   timers[index] = true;
   starttimer(AorB, increment);
 }
 
 void stoptimer_sr(int AorB, int index) {
   if (TRACE > 1)
-    printf("          STOP TIMER: stopping timer at %f\n", RTT);
+    printf("          STOP TIMER: stopping timer at %f\n", time);
   timers[index] = false;
   stoptimer(AorB);
 }
 
+/* Find a running timer and start it if not currently running */
 void manage_timers(void) {
   int i;
   for (i = 0; i < windowcount; i++) {
@@ -73,6 +73,7 @@ void manage_timers(void) {
   }
 }
 
+/* Find buffer index for a given sequence number */
 int get_buffer_index(int seqnum) {
   int i;
   for (i = 0; i < windowcount; i++) {
@@ -82,6 +83,7 @@ int get_buffer_index(int seqnum) {
   return -1;
 }
 
+/* Slide the window forward for all acknowledged packets */
 void slide_window(void) {
   int slide = 0;
   int i;
@@ -97,6 +99,9 @@ void slide_window(void) {
     windowcount -= slide;
     for (i = 0; i < slide; i++) {
       int idx = (old_base + i) % WINDOWSIZE;
+      if (timers[idx]) {
+        stoptimer_sr(A, idx);  // Stop any running timers
+      }
       timers[idx] = false;  /* Clear timer flags for shifted packets */
       acked[idx] = false;   /* Clear acked flags for shifted packets */
     }
@@ -126,7 +131,12 @@ void A_output(struct msg message) {
       printf("Sending packet %d to layer 3\n", sendpkt.seqnum);
 
     tolayer3(A, sendpkt);
-    starttimer_sr(A, RTT, buffer_index);
+    
+    // Only start a timer if there isn't one running already
+    if (!timers[buffer_index]) {
+      starttimer_sr(A, RTT, buffer_index);
+    }
+    
     A_nextseqnum = (A_nextseqnum + 1) % SEQSPACE;
   } else {
     window_full++;
@@ -149,18 +159,19 @@ void A_input(struct pkt packet) {
 
       acked[idx] = true;
       new_ACKs++;
-      if (timers[idx])
+      if (timers[idx]) {
         stoptimer_sr(A, idx);
+      }
       slide_window();
-      if (windowcount > 0)
+      if (windowcount > 0) {
         manage_timers();
+      }
     }
   }
 }
 
 void A_timerinterrupt(void) {
   int i;
-  int found_timer = 0;
 
   if (windowcount <= 0) return;
 
@@ -173,13 +184,9 @@ void A_timerinterrupt(void) {
       packets_resent++;
       timers[idx] = false;
       starttimer_sr(A, RTT, idx);
-      found_timer = 1;
-      break; /* Only resend one packet per timer interrupt */
+      return; // Only handle one timer at a time
     }
   }
-
-  if (!found_timer && windowcount > 0)
-    manage_timers();
 }
 
 void A_init(void) {
@@ -196,11 +203,14 @@ void A_init(void) {
 
 /* Returns true if seqnum is within the current receive window */
 bool is_in_window(int seqnum) {
-  int ub = (rcv_base + WINDOWSIZE - 1) % SEQSPACE;
-  if (rcv_base <= ub) {
-    return (seqnum >= rcv_base && seqnum <= ub);
+  int upper_bound = (rcv_base + WINDOWSIZE - 1) % SEQSPACE;
+  
+  if (rcv_base <= upper_bound) {
+    // Window doesn't wrap around SEQSPACE
+    return (seqnum >= rcv_base && seqnum <= upper_bound);
   } else {
-    return (seqnum >= rcv_base || seqnum <= ub);
+    // Window wraps around SEQSPACE
+    return (seqnum >= rcv_base || seqnum <= upper_bound);
   }
 }
 
@@ -245,19 +255,17 @@ void B_input(struct pkt packet) {
     }
 
     /* Send ACK */
-    ackpkt.seqnum = B_nextseqnum;
+    ackpkt.seqnum = NOTINUSE;  // Not using sequence numbers for ACKs
     ackpkt.acknum = packet.seqnum;
     memset(ackpkt.payload, 0, 20);
     ackpkt.checksum = ComputeChecksum(ackpkt);
     tolayer3(B, ackpkt);
-    B_nextseqnum = (B_nextseqnum + 1) % 2;
   }
 }
 
 void B_init(void) {
   int i;
   rcv_base = 0;
-  B_nextseqnum = 1;
   for (i = 0; i < WINDOWSIZE; i++)
     received[i] = false;
 }
