@@ -1,3 +1,4 @@
+// sr.c
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -23,16 +24,19 @@ static bool received[WINDOWSIZE];
 static struct pkt buffered[WINDOWSIZE];
 static int B_nextseqnum;
 
+// Basic checksum calculator for error detection
 int ComputeChecksum(struct pkt packet) {
   int checksum = packet.seqnum + packet.acknum;
   for (int i = 0; i < 20; i++) checksum += (int)(packet.payload[i]);
   return checksum;
 }
 
+// Checks if a received packet is corrupted using checksum comparison
 bool IsCorrupted(struct pkt packet) {
   return packet.checksum != ComputeChecksum(packet);
 }
 
+// Starts the timer for a packet at a specific index
 void starttimer_sr(int AorB, double increment, int index) {
   if (TRACE > 1)
     printf("----Starting timer for packet at window index %d\n", index);
@@ -40,6 +44,7 @@ void starttimer_sr(int AorB, double increment, int index) {
   starttimer(AorB, increment);
 }
 
+// Stops the logical timer for a given packet index
 void stoptimer_sr(int AorB, int index) {
   if (TRACE > 1)
     printf("----Stopping timer for packet at window index %d\n", index);
@@ -47,6 +52,7 @@ void stoptimer_sr(int AorB, int index) {
   stoptimer(AorB);
 }
 
+// Scans the send window and ensures at least one unACKed packet has a running timer
 void manage_timers(void) {
   for (int i = 0; i < windowcount; i++) {
     int idx = (windowbase + i) % WINDOWSIZE;
@@ -64,6 +70,7 @@ void manage_timers(void) {
   }
 }
 
+// Finds buffer index matching the sequence number
 int get_buffer_index(int seqnum) {
   for (int i = 0; i < windowcount; i++) {
     int idx = (windowbase + i) % WINDOWSIZE;
@@ -72,6 +79,7 @@ int get_buffer_index(int seqnum) {
   return -1;
 }
 
+// Slides sender window forward after successful ACKs
 void slide_window(void) {
   int slide = 0;
   for (int i = 0; i < windowcount; i++) {
@@ -89,6 +97,7 @@ void slide_window(void) {
   }
 }
 
+// Sends packet from application layer if window is not full
 void A_output(struct msg message) {
   struct pkt sendpkt;
   int i, buffer_index;
@@ -111,6 +120,7 @@ void A_output(struct msg message) {
   }
 }
 
+// Processes incoming ACKs and updates sender state
 void A_input(struct pkt packet) {
   if (!IsCorrupted(packet)) {
     total_ACKs_received++;
@@ -125,6 +135,7 @@ void A_input(struct pkt packet) {
   }
 }
 
+// Retransmits packet on timeout and restarts timer
 void A_timerinterrupt(void) {
   for (int i = 0; i < windowcount; i++) {
     int idx = (windowbase + i) % WINDOWSIZE;
@@ -141,6 +152,7 @@ void A_timerinterrupt(void) {
   if (windowcount > 0) manage_timers();
 }
 
+// Initializes sender state
 void A_init(void) {
   A_nextseqnum = 0;
   windowbase = 0;
@@ -151,16 +163,19 @@ void A_init(void) {
   }
 }
 
+// Checks if a seqnum falls within the current receiver window
 bool is_in_window(int seqnum) {
   int ub = (rcv_base + WINDOWSIZE - 1) % SEQSPACE;
   return (rcv_base <= ub) ? (seqnum >= rcv_base && seqnum <= ub)
                           : (seqnum >= rcv_base || seqnum <= ub);
 }
 
+// Converts sequence number to receiver buffer index
 int get_receiver_index(int seqnum) {
   return (seqnum - rcv_base + WINDOWSIZE) % WINDOWSIZE;
 }
 
+// Delivers in-order buffered packets to the application layer
 void deliver_buffered_packets(void) {
   bool delivered = true;
   while (delivered) {
@@ -175,3 +190,36 @@ void deliver_buffered_packets(void) {
     } else delivered = false;
   }
 }
+
+// Handles packet reception at B, sends ACK and buffers if valid
+void B_input(struct pkt packet) {
+  struct pkt ackpkt;
+  if (!IsCorrupted(packet) && is_in_window(packet.seqnum)) {
+    if (TRACE > 0)
+      printf("----B: packet %d is correctly received and in window, send ACK!\n", packet.seqnum);
+    int idx = get_receiver_index(packet.seqnum);
+    if (!received[idx]) {
+      received[idx] = true;
+      buffered[idx] = packet;
+      packets_received++;
+      if (packet.seqnum == rcv_base) deliver_buffered_packets();
+    }
+    ackpkt.seqnum = B_nextseqnum;
+    ackpkt.acknum = packet.seqnum;
+    for (int i = 0; i < 20; i++) ackpkt.payload[i] = '0';
+    ackpkt.checksum = ComputeChecksum(ackpkt);
+    tolayer3(B, ackpkt);
+    B_nextseqnum = (B_nextseqnum + 1) % 2;
+  }
+}
+
+// Initializes receiver state
+void B_init(void) {
+  rcv_base = 0;
+  B_nextseqnum = 1;
+  for (int i = 0; i < WINDOWSIZE; i++) received[i] = false;
+}
+
+// Not used in this implementation
+void B_output(struct msg message) {}
+void B_timerinterrupt(void) {}
