@@ -1,4 +1,6 @@
-/* sr.c - Selective Repeat ARQ protocol implementation */
+
+ //* sr.c - Selective Repeat protocol implementation.
+ 
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -6,33 +8,33 @@
 #include "emulator.h"
 #include "sr.h"
 
-#define RTT  16.0
-#define WINDOWSIZE 6
-#define SEQSPACE 12
-#define NOTINUSE (-1)
+#define RTT  16.0              // Timeout interval in simulated time units
+#define WINDOWSIZE 6          // Number of outstanding unacknowledged packets allowed
+#define SEQSPACE 12           // Total sequence number space (must be > 2 * WINDOWSIZE)
+#define NOTINUSE (-1)         // Special value for unused acknum
 
-/* Sender-side state */
-static struct pkt buffer[WINDOWSIZE];
-static int windowbase;
-static int windowcount;
-static int A_nextseqnum;
-static bool acked[WINDOWSIZE];
-static bool timers[WINDOWSIZE];
+// Sender-side state
+static struct pkt buffer[WINDOWSIZE];      // Outgoing packet buffer
+static int windowbase;                     // Sequence number of oldest unacked packet
+static int windowcount;                    // Number of unacked packets in window
+static int A_nextseqnum;                   // Next sequence number to use
+static bool acked[WINDOWSIZE];             // Tracks which packets were ACKed
+static bool timers[WINDOWSIZE];            // Tracks which timers are active
 
-/* Receiver-side state */
-static int rcv_base;
-static bool received[WINDOWSIZE];
-static struct pkt buffered[WINDOWSIZE];
-static int B_nextseqnum;
+// Receiver-side state
+static int rcv_base;                       // Sequence number expected next at receiver
+static bool received[WINDOWSIZE];          // Marks which packets were received within the window
+static struct pkt buffered[WINDOWSIZE];    // Packet buffer for reordering
+static int B_nextseqnum;                   // Alternating bit for ACK packet sequence numbers (not used logically)
 
-/* Statistics counters */
-static int window_full;
-static int total_ACKs_received;
-static int new_ACKs;
-static int packets_resent;
-static int packets_received;
+// Shared statistics variables declared in emulator.h
+int window_full;
+int total_ACKs_received;
+int new_ACKs;
+int packets_resent;
+int packets_received;
 
-/* Compute checksum for a packet */
+// Calculates checksum based on packet content
 int ComputeChecksum(struct pkt packet) {
   int checksum = packet.seqnum + packet.acknum;
   int i;
@@ -41,12 +43,12 @@ int ComputeChecksum(struct pkt packet) {
   return checksum;
 }
 
-/* Check whether a packet is corrupted */
+// Verifies if a packet is corrupted
 bool IsCorrupted(struct pkt packet) {
   return packet.checksum != ComputeChecksum(packet);
 }
 
-/* Start the timer for a specific packet */
+// Starts the timer for the specified index
 void starttimer_sr(int AorB, double increment, int index) {
   if (TRACE > 1)
     printf("----Starting timer for packet at window index %d\n", index);
@@ -54,7 +56,7 @@ void starttimer_sr(int AorB, double increment, int index) {
   starttimer(AorB, increment);
 }
 
-/* Stop the timer for a specific packet */
+// Stops the timer for the specified index
 void stoptimer_sr(int AorB, int index) {
   if (TRACE > 1)
     printf("----Stopping timer for packet at window index %d\n", index);
@@ -62,7 +64,7 @@ void stoptimer_sr(int AorB, int index) {
   stoptimer(AorB);
 }
 
-/* Ensure there's at least one active timer for outstanding packets */
+// Ensures at least one timer is active for unacked packets
 void manage_timers(void) {
   int i;
   for (i = 0; i < windowcount; i++) {
@@ -81,7 +83,7 @@ void manage_timers(void) {
   }
 }
 
-/* Get index of packet in buffer based on seqnum */
+// Returns buffer index matching given seqnum (or -1 if not found)
 int get_buffer_index(int seqnum) {
   int i;
   for (i = 0; i < windowcount; i++) {
@@ -91,7 +93,7 @@ int get_buffer_index(int seqnum) {
   return -1;
 }
 
-/* Slide the sender window forward after ACKs */
+// Moves the send window forward past ACKed packets
 void slide_window(void) {
   int slide = 0;
   int i;
@@ -113,7 +115,7 @@ void slide_window(void) {
   }
 }
 
-/* Called when data arrives from the application layer */
+// Called when data arrives from the application layer
 void A_output(struct msg message) {
   struct pkt sendpkt;
   int i, buffer_index;
@@ -144,7 +146,7 @@ void A_output(struct msg message) {
   }
 }
 
-/* Called when an ACK is received */
+// Called when an ACK is received
 void A_input(struct pkt packet) {
   int idx;
 
@@ -170,7 +172,7 @@ void A_input(struct pkt packet) {
   }
 }
 
-/* Timeout handler: retransmit the oldest unacked packet */
+// Timeout handler: retransmit the oldest unacked packet
 void A_timerinterrupt(void) {
   int i;
   int found_timer = 0;
@@ -195,7 +197,7 @@ void A_timerinterrupt(void) {
     manage_timers();
 }
 
-/* Initialize sender-side variables */
+// Initializes sender-side variables
 void A_init(void) {
   int i;
   A_nextseqnum = 0;
@@ -213,19 +215,19 @@ void A_init(void) {
   }
 }
 
-/* Check if a sequence number is in the receiver’s window */
+// Checks if a sequence number is in the receiver's window
 bool is_in_window(int seqnum) {
   int ub = (rcv_base + WINDOWSIZE - 1) % SEQSPACE;
   return (rcv_base <= ub) ? (seqnum >= rcv_base && seqnum <= ub)
                           : (seqnum >= rcv_base || seqnum <= ub);
 }
 
-/* Map sequence number to receiver buffer index */
+// Maps a seqnum to an index in the receiver's buffer
 int get_receiver_index(int seqnum) {
   return (seqnum - rcv_base + WINDOWSIZE) % WINDOWSIZE;
 }
 
-/* Deliver in-order packets from receiver buffer to layer5 */
+// Delivers in-order packets from receiver buffer to layer5
 void deliver_buffered_packets(void) {
   bool delivered = true;
   while (delivered) {
@@ -242,7 +244,7 @@ void deliver_buffered_packets(void) {
   }
 }
 
-/* Called when packet arrives at receiver */
+// Called when packet arrives at receiver
 void B_input(struct pkt packet) {
   struct pkt ackpkt;
   int idx, i;
@@ -270,7 +272,7 @@ void B_input(struct pkt packet) {
   }
 }
 
-/* Initialize receiver-side state */
+// Initializes receiver-side state
 void B_init(void) {
   int i;
   rcv_base = 0;
@@ -279,6 +281,6 @@ void B_init(void) {
     received[i] = false;
 }
 
-/* Not used in this SR implementation */
+// Not used in SR; required by API
 void B_output(struct msg message) {}
 void B_timerinterrupt(void) {}
