@@ -47,18 +47,26 @@ bool IsCorrupted(struct pkt packet) {
   return packet.checksum != ComputeChecksum(packet);
 }
 
-void starttimer_sr(int AorB, float increment, int index) {
-  if (TRACE > 1)
-    printf("          START TIMER: starting timer at %f\n", time);
-  timers[index] = true;
-  starttimer(AorB, increment);
+void starttimer_sr(int AorB, double increment, int index) {
+    if (timers[index]) {
+        // Timer is already running, do not restart
+        return;
+    }
+    timers[index] = true;
+    if (TRACE > 1)
+        printf("          START TIMER: starting timer at %.6f\n", increment);
+    starttimer(AorB, increment);
 }
 
 void stoptimer_sr(int AorB, int index) {
-  if (TRACE > 1)
-    printf("          STOP TIMER: stopping timer at %f\n", time);
-  timers[index] = false;
-  stoptimer(AorB);
+    if (!timers[index]) {
+        // Timer is already stopped
+        return;
+    }
+    timers[index] = false;
+    if (TRACE > 1)
+        printf("          STOP TIMER: stopping timer at %.6f\n", get_sim_time());  // use current time
+    stoptimer(AorB);
 }
 
 /* Find a running timer and start it if not currently running */
