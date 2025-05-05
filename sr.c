@@ -33,8 +33,6 @@ extern int new_ACKs;
 extern int packets_resent;
 extern int packets_received;
 
-extern double get_sim_time(); // Fix linker error for get_sim_time
-
 int ComputeChecksum(struct pkt packet) {
   int checksum = packet.seqnum + packet.acknum;
   int i;
@@ -49,14 +47,14 @@ bool IsCorrupted(struct pkt packet) {
 
 void starttimer_sr(int AorB, double increment, int index) {
   if (TRACE > 1)
-    printf("          START TIMER: starting timer at %.6f\n", get_sim_time());
+    printf("          START TIMER: starting timer\n");
   timers[index] = true;
   starttimer(AorB, increment);
 }
 
 void stoptimer_sr(int AorB, int index) {
   if (TRACE > 1)
-    printf("          STOP TIMER: stopping timer at %.6f\n", get_sim_time());
+    printf("          STOP TIMER: stopping timer\n");
   timers[index] = false;
   stoptimer(AorB);
 }
@@ -238,7 +236,7 @@ void B_input(struct pkt packet) {
 
     ackpkt.seqnum = B_nextseqnum;
     ackpkt.acknum = packet.seqnum;
-    memset(ackpkt.payload, 0, 20); /* 使用 memset 设置全零 payload */
+    memset(ackpkt.payload, 0, 20);
     ackpkt.checksum = ComputeChecksum(ackpkt);
     tolayer3(B, ackpkt);
     B_nextseqnum = (B_nextseqnum + 1) % 2;
