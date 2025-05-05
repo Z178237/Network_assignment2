@@ -47,25 +47,25 @@ bool IsCorrupted(struct pkt packet) {
   return packet.checksum != ComputeChecksum(packet);
 }
 
-void starttimer_sr(int AorB, double increment, int index) {
+void starttimer_sr(int AorB, float increment, int index) {
     if (timers[index]) {
-        // Timer is already running, do not restart
+        /* Timer is already running, do not restart */
         return;
     }
     timers[index] = true;
     if (TRACE > 1)
-        printf("          START TIMER: starting timer at %.6f\n", increment);
+        printf("          START TIMER: starting timer at %f\n", time);
     starttimer(AorB, increment);
 }
 
 void stoptimer_sr(int AorB, int index) {
     if (!timers[index]) {
-        // Timer is already stopped
+        /* Timer is already stopped */
         return;
     }
     timers[index] = false;
     if (TRACE > 1)
-        printf("          STOP TIMER: stopping timer at %.6f\n", get_sim_time());  // use current time
+        printf("          STOP TIMER: stopping timer at %f\n", time);
     stoptimer(AorB);
 }
 
@@ -108,7 +108,7 @@ void slide_window(void) {
     for (i = 0; i < slide; i++) {
       int idx = (old_base + i) % WINDOWSIZE;
       if (timers[idx]) {
-        stoptimer_sr(A, idx);  // Stop any running timers
+        stoptimer_sr(A, idx);  /* Stop any running timers */
       }
       timers[idx] = false;  /* Clear timer flags for shifted packets */
       acked[idx] = false;   /* Clear acked flags for shifted packets */
@@ -140,7 +140,7 @@ void A_output(struct msg message) {
 
     tolayer3(A, sendpkt);
     
-    // Only start a timer if there isn't one running already
+    /* Only start a timer if there isn't one running already */
     if (!timers[buffer_index]) {
       starttimer_sr(A, RTT, buffer_index);
     }
@@ -192,7 +192,7 @@ void A_timerinterrupt(void) {
       packets_resent++;
       timers[idx] = false;
       starttimer_sr(A, RTT, idx);
-      return; // Only handle one timer at a time
+      return; /* Only handle one timer at a time */
     }
   }
 }
@@ -214,10 +214,10 @@ bool is_in_window(int seqnum) {
   int upper_bound = (rcv_base + WINDOWSIZE - 1) % SEQSPACE;
   
   if (rcv_base <= upper_bound) {
-    // Window doesn't wrap around SEQSPACE
+    /* Window doesn't wrap around SEQSPACE */
     return (seqnum >= rcv_base && seqnum <= upper_bound);
   } else {
-    // Window wraps around SEQSPACE
+    /* Window wraps around SEQSPACE */
     return (seqnum >= rcv_base || seqnum <= upper_bound);
   }
 }
@@ -263,7 +263,7 @@ void B_input(struct pkt packet) {
     }
 
     /* Send ACK */
-    ackpkt.seqnum = NOTINUSE;  // Not using sequence numbers for ACKs
+    ackpkt.seqnum = NOTINUSE;  /* Not using sequence numbers for ACKs */
     ackpkt.acknum = packet.seqnum;
     memset(ackpkt.payload, 0, 20);
     ackpkt.checksum = ComputeChecksum(ackpkt);
