@@ -47,25 +47,23 @@ bool IsCorrupted(struct pkt packet) {
   return packet.checksum != ComputeChecksum(packet);
 }
 
+/* Start timer for a specific packet */
 void starttimer_sr(int AorB, float increment, int index) {
     if (timers[index]) {
         /* Timer is already running, do not restart */
         return;
     }
     timers[index] = true;
-    if (TRACE > 1)
-        printf("          START TIMER: starting timer at %f\n", increment);
     starttimer(AorB, increment);
 }
 
+/* Stop timer for a specific packet */
 void stoptimer_sr(int AorB, int index) {
     if (!timers[index]) {
         /* Timer is already stopped */
         return;
     }
     timers[index] = false;
-    if (TRACE > 1)
-        printf("          STOP TIMER: stopping timer at %f\n", RTT);
     stoptimer(AorB);
 }
 
@@ -140,10 +138,11 @@ void A_output(struct msg message) {
 
     tolayer3(A, sendpkt);
     
-    /* Only start a timer if there isn't one running already */
-    if (!timers[buffer_index]) {
-      starttimer_sr(A, RTT, buffer_index);
-    }
+    /* Start timer for this packet if no timer is running */
+    if (TRACE > 1)
+      printf("          START TIMER: starting timer at %f\n", time);
+    
+    starttimer_sr(A, RTT, buffer_index);
     
     A_nextseqnum = (A_nextseqnum + 1) % SEQSPACE;
   } else {
@@ -167,12 +166,37 @@ void A_input(struct pkt packet) {
 
       acked[idx] = true;
       new_ACKs++;
+      
       if (timers[idx]) {
+        if (TRACE > 1)
+          printf("          STOP TIMER: stopping timer at %f\n", time);
         stoptimer_sr(A, idx);
       }
+      
       slide_window();
+      
+      /* Check if we need to start a timer for any unacked packets */
       if (windowcount > 0) {
-        manage_timers();
+        int has_timer_running = 0;
+        for (int i = 0; i < windowcount; i++) {
+          int idx = (windowbase + i) % WINDOWSIZE;
+          if (timers[idx]) {
+            has_timer_running = 1;
+            break;
+          }
+        }
+        
+        if (!has_timer_running) {
+          for (int i = 0; i < windowcount; i++) {
+            int idx = (windowbase + i) % WINDOWSIZE;
+            if (!acked[idx]) {
+              if (TRACE > 1)
+                printf("          START TIMER: starting timer at %f\n", time);
+              starttimer_sr(A, RTT, idx);
+              break;
+            }
+          }
+        }
       }
     }
   }
@@ -191,7 +215,11 @@ void A_timerinterrupt(void) {
       tolayer3(A, buffer[idx]);
       packets_resent++;
       timers[idx] = false;
+      
+      if (TRACE > 1)
+        printf("          START TIMER: starting timer at %f\n", time);
       starttimer_sr(A, RTT, idx);
+      
       return; /* Only handle one timer at a time */
     }
   }
